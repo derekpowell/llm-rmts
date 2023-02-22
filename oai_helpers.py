@@ -1,10 +1,10 @@
-# import numpy as np
-# import pandas as pd
-# import openai
-# import configparser
-# import re 
-# import time
-# from  scipy.special import expit, logit
+import numpy as np
+import pandas as pd
+import openai
+import configparser
+import re 
+import time
+from  scipy.special import expit, logit
 
 
 # # 
@@ -43,20 +43,14 @@ def make_prompt(query, base_prompt, suffix=""):
 #     return(out)
 
 
-def gpt_complete_batch(questions, prompt, suffix = "", sleep=0, **kwargs): #  , max_tokens=12, stop=None
+def gpt_complete_batch(questions, prompt, model = "text-davinci-003", suffix = "", sleep=0, **kwargs): #  , max_tokens=12, stop=None
   
   # need to add batching into groups of 20 prompts
 
     response = openai.Completion.create(
-        model="text-davinci-003",
-        prompt= make_prompt(questions, prompt, suffix),
-        # temperature=0,
-        # top_p=1,
-        # frequency_penalty=0,
-        # presence_penalty=0,
+        model = model,
+        prompt = make_prompt(questions, prompt, suffix),
         **kwargs
-        # max_tokens=max_tokens,
-        # stop = stop
     )
 
     full_text = get_gpt_text(response)
@@ -69,13 +63,13 @@ def gpt_complete_batch(questions, prompt, suffix = "", sleep=0, **kwargs): #  , 
     return(out)    
 
 
-def gpt_complete(questions, prompt="", suffix = "", sleep=0, **kwargs):
+def gpt_complete(questions, prompt="", suffix = "", model = "text-davinci-003", sleep=0, **kwargs):
 
     if type(questions)==list:
   
         questions_list = [questions[i:i+20] for i in range(0, len(questions), 20)] # batch into lists of 20
         # should make this a for loop and sleep a bit in between batches
-        response_list = [gpt_complete_batch(q, prompt, suffix, **kwargs) for q in questions_list] 
+        response_list = [gpt_complete_batch(q, prompt, suffix, model=model, sleep=sleep, **kwargs) for q in questions_list] 
         
         out = list()
 
@@ -83,7 +77,7 @@ def gpt_complete(questions, prompt="", suffix = "", sleep=0, **kwargs):
             out = out + sub_list
 
     else:
-        out = gpt_complete_batch(questions, prompt, suffix, **kwargs)
+        out = gpt_complete_batch(questions, prompt, suffix, model=model, **kwargs)
 
     return(out)
 
@@ -95,18 +89,17 @@ def get_gpt_logprobs(response):
     return(x)
 
 
-def gpt_token_probs_batch(questions, prompt, suffix = "", sleep=0, **kwargs):
+def gpt_token_probs_batch(questions, prompt, suffix = "", model = "text-davinci-003",  sleep=0, **kwargs):
   
   # need to add batching into groups of 20 prompts
 
     response = openai.Completion.create(
-        model="text-davinci-003",
+        model=model,
         prompt= make_prompt(questions, prompt, suffix),
         logprobs=1,
         echo=True,
         max_tokens=0,
         **kwargs
-        # stop = stop
     )
 
     # full_text = get_gpt_text(response)
@@ -118,13 +111,13 @@ def gpt_token_probs_batch(questions, prompt, suffix = "", sleep=0, **kwargs):
     return(out)    
 
 
-def gpt_token_probs(questions, prompt="", suffix = "", sleep=0, **kwargs):
+def gpt_token_probs(questions, prompt="", suffix = "", model = "text-davinci-003", sleep=0, **kwargs):
 
     if type(questions)==list:
   
         questions_list = [questions[i:i+20] for i in range(0, len(questions), 20)] # batch into lists of 20
         # should make this a for loop and sleep a bit in between batches
-        response_list = [gpt_token_probs_batch(q, prompt, suffix, **kwargs) for q in questions_list] 
+        response_list = [gpt_token_probs_batch(q, prompt, suffix, model=model, sleep=sleep, **kwargs) for q in questions_list] 
         
         out = list()
 
@@ -132,6 +125,6 @@ def gpt_token_probs(questions, prompt="", suffix = "", sleep=0, **kwargs):
             out = out + sub_list
 
     else:
-        out = gpt_token_probs_batch(questions, prompt, suffix, **kwargs)
+        out = gpt_token_probs_batch(questions, prompt, suffix, model=model, **kwargs)
 
     return(out)
