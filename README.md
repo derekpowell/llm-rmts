@@ -6,10 +6,10 @@ This repository tests the ability of GPT-3 (and related models) to complete Rela
 
 Consider the task below:
 
-[apple] [apple]
+[apple] [apple]  
 [orange] [ ? ]
 
-a. orange
+a. orange  
 b. apple
 
 The pair {apple, apple} instantiates an instance of the "same" relation, and so the correct (relational) answer is "a", which would instantiate a matching relation. However, a tempting "surface-similar" lure is "b", which appears in the initial pair.
