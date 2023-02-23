@@ -21,7 +21,7 @@ def make_np_matrix_progression(svals, summands):
 
 
 def format_matrix_row(row):
-    return("".join(["[" + str(i) + "]" for i in row]))
+    return("".join(["[ " + str(i) + "]" for i in row]))
 
 
 def format_digit_matrix(m, mask=None):
@@ -67,7 +67,7 @@ def make_np_matrix_dist(svals):
 
 ```{python}
 def mix_matrix_row(r1, r2):
-    return("".join(["[" + str(r1[i]) + " " + str(r2[i]) + "]" for i in range(0, len(r1))]))
+    return("".join(["[ " + str(r1[i]) + " " + str(r2[i]) + "]" for i in range(0, len(r1))]))
 
 def mix_matrices(m1, m2, mask=None):
 
@@ -101,8 +101,8 @@ Using the first 50 digits as "within sample" and the last 50 digits as "out of s
 - progression: 30 choose 3 = 4060 first vectors and 9 choose 3 = 84 summands, or ~341k matrices that can be made.
 - two-rule: all combinations of these, so millions
 - could also possibly add some new relations:
-    - fibonnaci (sum of last two numbers) (looks like it can 1-shot)
-    - successive doubling (looks like it can 1-shot)
+    - fibonnaci (sum of last two numbers) (looks like it can 1-shot) -- can't have very many of these tho
+    - successive doubling (looks like it can 1-shot) -- can have about 24x24x24 = 13824 of these
 
 In terms of relation-pairs, there are 6 different kinds:
 
