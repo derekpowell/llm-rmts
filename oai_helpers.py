@@ -128,3 +128,11 @@ def gpt_token_probs(questions, prompt="", suffix = "", model = "text-davinci-003
         out = gpt_token_probs_batch(questions, prompt, suffix, model=model, **kwargs)
 
     return(out)
+
+
+from transformers import GPT2Tokenizer
+
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+
+def count_tokens(x):
+    return(len(tokenizer(x)["input_ids"]))

@@ -1,13 +1,35 @@
+---
+title: "RMTS - number matrices"
+format: html
+---
 
-
-# Matrix things below
-
-Not relevant yet ...
 
 ```{python}
 import numpy as np
+import pandas as pd
+import openai
+import configparser
+import re 
+import time
+from  scipy.special import expit, logit
 
-def make_np_matrix_progression(svals, summands):
+# import oai_helpers as oh
+from oai_helpers import *
+
+config = configparser.ConfigParser()
+config.read("config.ini")
+api_key = config.get('Keys','openai_api_key')
+
+openai.api_key = api_key
+```
+
+# Making matrices
+
+
+
+```{python}
+
+def make_np_matrix_progression(svals, summands=np.array([1,1,1])):
     # svals: numpy vector of starting values
     # summands: numpy vector of integer summands
 
@@ -89,7 +111,7 @@ x1 = make_np_matrix_progression(np.array([11, 22, 33]), np.array([1, 2, 3]))
 x2 = make_np_matrix_constant(np.array([41, 51, 61]))
 
 
-print(mix_matrices(x1, x2))
+# print(mix_matrices(x1, x2))
 ```
 
 I can make a lot of different matrices instantiating each of the individual relations while keeping the numbers in the realm of two-digits, and also while ensuring there are two distinct sets, an out of sample set for validation that has none of the same tokens as the created set.
@@ -124,101 +146,280 @@ I think so long as we are focused on few-shot learning, then using 2-rule will b
 Or if we add the two extra relation types, then the math changes somewhat. We can have 10 different pairs of one-rule matrices, so could possibly get away with all one-rule matrices. If we incorporate that all into two rule matrices, then we can have 10 choose 2 = 45 different pairs of two-rule matrices (10 same, 35 different). 
 
 
+```{python}
+
+mat_func_dict = {"constant": make_np_matrix_constant, "distribution": make_np_matrix_dist, "progression": make_np_matrix_progression}
+
+def define_r2(row):
+    if row["type"] == "same":
+        return(row["r1"])
+    else:
+        return(rng.choice([i for i in ["constant", "distribution", "progression"] if i not in row["r1"]]))
+
+
+def define_correct(row):
+    if row["type"] == "same":
+        return(row["seed_r1"])
+    else:
+        return(rng.choice([i for i in ["constant", "distribution", "progression"] if i not in row["seed_r1"]+ row["r1"]]))
+
+
+def define_foil(row):
+    if row["type"] == "different":
+        return(row["seed_r1"])
+    else:
+        return(row["r1"])
+
+
+def make_trial_data(N, rng):
+    df = pd.DataFrame({"type": ["same"]*int(N/2) + ["different"]*int(N/2)})
+
+    df["r1"] = rng.choice(["constant", "distribution", "progression"], size=N)
+    df["r2"] = df.apply(define_r2, axis=1)
+
+    df["init_vals1"] = list(rng.integers(1, 51, size=(N,3)))
+    df["init_vals2"] = list(rng.integers(1, 51, size=(N,3)))
+
+    df["init_vals3"] = list(rng.integers(1, 51, size=(N,3)))
+    df["init_vals4"] = list(rng.integers(1, 51, size=(N,3)))
+
+    df["m1"] = df.apply(lambda x: mat_func_dict[x["r1"]](x["init_vals1"]), axis=1)
+    df["m1"] = df.apply(lambda x: format_digit_matrix(x["m1"]), axis=1)
+
+    df["m2"] = df.apply(lambda x: mat_func_dict[x["r2"]](x["init_vals2"]), axis=1)
+    df["m2"] = df.apply(lambda x: format_digit_matrix(x["m2"]), axis=1)
+
+    df["seed_r1"] = df.apply(
+        lambda row: rng.choice([i for i in ["constant", "distribution", "progression"] if i not in row["r1"]+row["r2"]])
+        if row["type"] == "same" else rng.choice([i for i in ["constant", "distribution", "progression"] if i in row["r1"]+row["r2"]]), axis=1
+        )
+
+
+    df["correct_r"] = df.apply(define_correct, axis=1)
+    df["foil_r"] = df.apply(define_foil, axis=1)
+
+    df["m3"] = df.apply(lambda x: mat_func_dict[x["seed_r1"]](x["init_vals3"]), axis=1)
+    df["m3"] = df.apply(lambda x: format_digit_matrix(x["m3"]), axis=1)
+
+    df["correct"] = df.apply(lambda x: mat_func_dict[x["correct_r"]](x["init_vals4"]), axis=1)
+    df["correct"] = df.apply(lambda x: format_digit_matrix(x["correct"]), axis=1)
+
+    df["foil"] = df.apply(lambda x: mat_func_dict[x["foil_r"]](x["init_vals4"]), axis=1)
+    df["foil"] = df.apply(lambda x: format_digit_matrix(x["foil"]), axis=1)
+
+    df["completion_token_len"] = df.apply(lambda x: count_tokens(x["correct"]), axis=1) # same for correct and 
+
+    return(df)
+```
+
+
+
+
+Data are constructed so that the correct answer is always a novel relation, and the foil is always a relation that has appeared in the first pair. 
+
+```{python}
+rng = np.random.default_rng(123)
+N = 200
+
+df = make_trial_data(N, rng)
+```
+
+
+```{python}
+def make_rmts_cloze_prompt(m1, m2, m3, completed):
+    string = str(m1) + "\n.\n" + str(m2) + "\n---\n" + str(m3) + "\n.\n" + str(completed)
+
+    return(string)    
+
+
+def make_normalization_prompt(m1, completed):
+    string = "\n---\n"+ str(m1) + "\n.\n" + str(completed)
+
+    return(string)    
+
+
+def make_cloze_prompts(df, option_name="correct"):
+    prompts = [make_rmts_cloze_prompt(i[0], i[1],i[2], i[3]) for i in zip(df["m1"], df["m2"], df["m3"], df[option_name])]
+
+    norm_prompts = [make_normalization_prompt(i[0], i[1]) for i in zip(df["m3"], df[option_name])]
+
+    return(prompts, norm_prompts)
+
+
+def count_cloze_prompt_tokens(df, option_name="correct", prompt=""):
+    cloze_prompts, cloze_norm_prompts = make_cloze_prompts(df, option_name)
+    x = [count_tokens(p) for p in cloze_prompts + cloze_norm_prompts]
+    return(np.sum(x)+count_tokens(prompt)*len(cloze_prompts))
+
+
+
+```
+
+
+```{python}
+
+# df["completion_token_len"] = df.apply(lambda x: count_tokens(x["correct"]), axis=1) # same for correct and incorrect
+
+print(count_cloze_prompt_tokens(df), "tokens")
+
+
+# cloze_prompts, cloze_norm_prompts = make_cloze_prompts(df.head(5))
+# logprobs =  gpt_token_probs(cloze_prompts)
+
+```
+
+
+
+```{python}
+
+
+def identify_logprobs(df, logprobs, option_name="correct"):
+    ## not super happy with this!
+    
+    exclude_tokens = [58, 60, 7131, 198]
+    prompts, prompts_norm = make_cloze_prompts(df)
+
+    tokens = [tokenizer.encode(p) for p in prompts]
+
+    token_ids = [t[-corr_token_len:] for t in tokens]
+    logprobs = [l[-corr_token_len:] for l in logprobs]
+
+    token_inds = []
+    logprobs_sums = []
+
+    for t in token_ids:
+        idX = [i for i in range(len(t)) if t[i] not in exclude_tokens]
+        token_inds.append(idX)
+    for logprob in logprobs:
+        logprobs_sums.append(sum([logprob[i] for i in idX]))
+
+
+    return(logprobs_sums)
+
+
+def compute_cloze_prob(df, option_name="correct", prompt="", ind = -2, model="text-davinci-003", sleep=0, **kwargs):
+    cloze_prompts, cloze_norm_prompts = make_cloze_prompts(df, option_name)
+    cloze_logprobs = gpt_token_probs(cloze_prompts, prompt=prompt, model=model, sleep=sleep, **kwargs)
+    option_logprobs = np.array(identify_logprobs(df, cloze_logprobs, option_name=option_name))
+
+    return(option_logprobs)
+
+
+def compute_cloze_prob_normalized(df, option_name="correct", prompt="", ind = -2, model="text-davinci-003", sleep=0, **kwargs):
+    cloze_prompts, cloze_norm_prompts = make_cloze_prompts(df, option_name)
+
+    cloze_logprobs = gpt_token_probs(cloze_prompts, prompt=prompt, model=model, sleep=sleep, **kwargs)
+    time.sleep(sleep)
+    cloze_norm_logprobs = gpt_token_probs(cloze_norm_prompts, prompt=prompt, model=model, sleep=sleep, **kwargs) # may help to add prompt here too, unclear
+
+    option_logprobs = np.array(identify_logprobs(df, cloze_logprobs, option_name=option_name))
+    norm_logprobs = np.array(identify_logprobs(df, cloze_norm_logprobs, option_name=option_name))
+
+    # return(option_logprobs)
+    return(option_logprobs - norm_logprobs)
+    # return(np.log(expit(option_logprobs)) - np.log(expit(norm_logprobs)))
+
+# identify_logprobs(df.head(5), logprobs)
+```
+
+
+```{python}
+x = compute_cloze_prob(df, "correct",  model = "text-davinci-003")
+y = compute_cloze_prob(df, "foil", model = "text-davinci-003")
+df["gpt_correct_zeroshot"] = x > y
+```
+
+
+
+```{python}
+np.mean(df["gpt_correct_zeroshot"])
+```
+
+Without normalization, 52% accuracy  ~50% accuracy but not at all chance responding --- it scores 84% on the "same" relations and 20% on the "different". (an earlier success was due to a mistake in data creation).
+
+With normalization, it just does very poorly, 56% for different, 2% for same.
+
+```{python}
+df.groupby(["type"]).agg({"gpt_correct_zeroshot": np.mean})
+
+```
+
+
+## Few-shot prompting
+
+### Demonstration of relations
+
+First, trying demonstrating and labeling the types of relations involved.
+
+
+```{python}
+
+mat_example_prompt = "There are three different kinds of relationships or patterns.\n" + \
+"Constant:\n" + \
+    format_digit_matrix(make_np_matrix_constant(np.array([3,12,7]))) + \
+"\nDistribution:\n" + \
+    format_digit_matrix(make_np_matrix_dist(np.array([21,48,9]))) + \
+"\nProgression:\n" + \
+    format_digit_matrix(make_np_matrix_progression(np.array([4,15,29]))) + "\n\n" + \
+        "Now, complete the pattern below so that the relationship between the second two patterns matches the relationship between the first two patterns.\n\n"
+
+# mat_example_prompt = "\n----------\n".join(example_mats) + "\n\n\n"
+# df_examples = make_trial_data(2, np.random.default_rng(312)).sample(frac=1)
+# examples_prompt_list, NULL = make_cloze_prompts(df_examples, "correct")
+# examples_prompt = "\n----------\n".join(examples_prompt_list) + "\n----------\n"
+
+# print(count_cloze_prompt_tokens(df, prompt=examples_prompt)/100, "tokens each")
+
+print(mat_example_prompt)
+print(count_cloze_prompt_tokens(df, prompt=mat_example_prompt), "tokens total")
+```
+
+```{python}
+x = compute_cloze_prob(df, "correct", prompt = mat_example_prompt,  model = "text-davinci-003")
+y = compute_cloze_prob(df, "foil", prompt = mat_example_prompt, model = "text-davinci-003")
+
+df["gpt_correct_examples"] = x > y
+```
+
+```{python}
+np.mean(df["gpt_correct_examples"])
+```
+
+```{python}
+df.groupby(["type"]).agg({"gpt_correct_zeroshot": np.mean, "gpt_correct_examples": np.mean})
+```
+
+### Examples
+
+And also just showing exampes of the task completed.
+
 ----
 
-Looking ahead, I think that this syntax will be the best. Key is to make sure there is the leading space ahead of the important tokens. This lets a one-rule matrix for 23 tokens, and a 2-rule for 31 tokens.
+~~Few-shot prompting is somehow making things __MUCH WORSE__.~~
 
-```
-[ 1][ 1][ 1]
-[ 2][ 2][ 2]
-[ 3][ 3][ 3]
-```
+```{python}
+df_examples = make_trial_data(16, np.random.default_rng(312)).sample(frac=1)
+examples_prompt_list, NULL = make_cloze_prompts(df_examples, "correct")
+examples_prompt = "Each pattern below is completed so that the relationship between the second two patterns matches the relationship between the first two patterns. Each pair can be either same or different patterns. The individual patterns are separated by a dot (.) and each pair is separated by three dashes (---). The problems are separated by a long bar of dashes. \n\n----------\n\n" + "\n\n----------\n\n".join(examples_prompt_list) + "\n\n----------\n\n"
 
-Should be able to do 16-shot prompting even with 3-rule problems (~2560 tokens). But can't quite fit 32-shot with more than one rule. So will have to turn to fine-tuning to give more examples.
-
-
-### Some tests on GPT-3
-
-Looks like it's quite sensitive to the formatting of the input. The best approach I think will be to find a zero-shot syntax that works for the basic case of RMTS between words/tokens. Then I can use the same syntax for the more complex cases of RMTS between number matrices.
-
-
-```
-[ car ]
-[ boat ]
-----
-[ boat ]
-[ ? ]
-
-? is:
-A: [ boat ]
-B: [ airplane ]
-
-Answer:
+print(count_cloze_prompt_tokens(df, prompt=examples_prompt)/N, "tokens each")
+print(count_cloze_prompt_tokens(df, prompt=examples_prompt), "tokens total")
 ```
 
-```
-< 
-car
->
-<
-boat
->
-----
-<
-boat
->
-<
-?
->
+```{python}
+x = compute_cloze_prob(df, "correct", prompt = examples_prompt,  model = "text-davinci-003")
+y = compute_cloze_prob(df, "foil", prompt = examples_prompt, model = "text-davinci-003")
 
-? is:
-A:
-<
-boat
->
-B
-<
-airplane
->
-
-Answer: B: <airplane>
+df["gpt_correct_exp"] = x > y
 ```
 
+```{python}
+np.mean(df["gpt_correct_exp"])
 ```
-<
-[ 1 ] [ 1 ] [ 1 ]
-[ 2 ] [ 2 ] [ 2 ]
-[ 3 ] [ 3 ] [ 3 ]
->
-<
-[ 6 ] [ 6 ] [ 6 ]
-[ 3 ] [ 3 ] [ 3 ]
-[ 1 ] [ 1 ] [ 1 ]
->
-----
-<
-[ 5 ] [ 5 ] [ 5 ]
-[ 2 ] [ 2 ] [ 2 ]
-[ 0 ] [ 0 ] [ 0 ]
->
-<
- ?
->
 
-? is:
-A:
-<
-[ 5 ] [ 2 ] [ 0 ]
-[ 2 ] [ 0 ] [ 5 ]
-[ 0 ] [ 5 ] [ 2 ]
->
-B: 
-<
-[ 8 ] [ 8 ] [ 8 ]
-[ 5 ] [ 5 ] [ 5 ]
-[ 3 ] [ 3 ] [ 3 ]
->
-
-Answer:
+```{python}
+df.groupby(["type"]).agg({"gpt_correct_zeroshot": np.mean, "gpt_correct_exp": np.mean})
 ```
+
+Accuracy for 200 is 56%, not really better than chance. So it seems that the few-shot prompting is not really helping. 
 

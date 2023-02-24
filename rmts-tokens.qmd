@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "RMTS - tokens"
 format: html
 ---
 
@@ -107,25 +107,29 @@ def make_rmts_cloze_prompt(p1, p2, m1, completed):
 
     return(string)    
 
+
 def make_normalization_prompt(m1, completed):
     string = "\n---\n"+ str(m1) + "\n.\n" + str(completed)
 
     return(string)    
 
+
 def make_cloze_prompts(df, option_name="correct"):
     prompts = [make_rmts_cloze_prompt(i[0], i[1],i[2], i[3]) for i in zip(df["p1"], df["p2"], df["m1"], df[option_name])]
 
-    return(prompts)
+    norm_prompts = [make_normalization_prompt(i[0], i[1]) for i in zip(df["m1"], df[option_name])]
 
-def make_cloze_norm_prompts(df, option_name="correct"):
-    prompts = [make_normalization_prompt(i[0], i[1]) for i in zip(df["m1"], df[option_name])]
+    return(prompts, norm_prompts)
 
-    return(prompts)
+
+def count_cloze_prompt_tokens(df, option_name="correct", prompt=""):
+    cloze_prompts, cloze_norm_prompts = make_cloze_prompts(df, option_name)
+    x = [count_tokens(p) for p in cloze_prompts + cloze_norm_prompts]
+    return(np.sum(x)+count_tokens(prompt)*len(cloze_prompts))
 
 
 def compute_cloze_prob(df, option_name="correct", prompt="", ind = -2, model="text-davinci-003", sleep=0, **kwargs):
-    cloze_prompts = make_cloze_prompts(df, option_name)
-    cloze_norm_prompts = make_cloze_norm_prompts(df, option_name)
+    cloze_prompts, cloze_norm_prompts = make_cloze_prompts(df, option_name)
 
     cloze_logprobs = gpt_token_probs(cloze_prompts, prompt=prompt, model=model, sleep=sleep, **kwargs)
     time.sleep(sleep)
@@ -138,6 +142,13 @@ def compute_cloze_prob(df, option_name="correct", prompt="", ind = -2, model="te
 
     return(option_logprobs - norm_logprobs)
     # return(np.log(expit(option_logprobs)) - np.log(expit(norm_logprobs)))
+
+```
+
+
+```{python}
+## compute a check!
+print(count_cloze_prompt_tokens(df), "tokens")
 
 ```
 
@@ -159,13 +170,17 @@ Well it clearly matters a lot how you normalize the cloze probabilities. I don't
 
 ```{python}
 df_examples = make_trial_data(32, np.random.default_rng(256))
-examples_prompts = make_cloze_prompts(df_examples.sample(frac=1)[0:32], "correct")
+examples_prompt_list, NULL = make_cloze_prompts(df_examples.sample(frac=1)[0:32], "correct")
+examples_prompt = "\n\n".join(examples_prompt_list) + "\n\n"
+
+print(count_cloze_prompt_tokens(df, prompt=examples_prompt)/100, "tokens each")
+print(count_cloze_prompt_tokens(df, prompt=examples_prompt), "tokens total")
 ```
 
 ```{python}
 
-x = compute_cloze_prob(df, "correct", prompt = "\n\n".join(examples_prompts) + "\n\n", ind=-1, model = "text-davinci-003") 
-y = compute_cloze_prob(df, "foil", prompt = "\n\n".join(examples_prompts) + "\n\n", ind=-1, model = "text-davinci-003")
+x = compute_cloze_prob(df, "correct", prompt = examples_prompt, ind=-1, model = "text-davinci-003") 
+y = compute_cloze_prob(df, "foil", prompt = examples_prompt, ind=-1, model = "text-davinci-003")
 
 ```
 
