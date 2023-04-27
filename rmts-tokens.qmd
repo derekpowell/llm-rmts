@@ -24,8 +24,6 @@ openai.api_key = api_key
 ```
 
 
-
-
 ## Relational Match-To-Sample
 
 I'm going to try to use GPT-3 to learn relational match to sample. I'm going to start with the simplest case of matching two-digit numbers to two-digit numbers. Then I'll move on to matching arbitrary token sequences of varying length (again using two-digit numbers as the tokens)
@@ -169,8 +167,8 @@ Well it clearly matters a lot how you normalize the cloze probabilities. I don't
 
 
 ```{python}
-df_examples = make_trial_data(32, np.random.default_rng(256))
-examples_prompt_list, NULL = make_cloze_prompts(df_examples.sample(frac=1)[0:32], "correct")
+df_examples = make_trial_data(32, np.random.default_rng(256)).sample(frac=1)
+examples_prompt_list, NULL = make_cloze_prompts(df_examples, "correct")
 examples_prompt = "\n\n".join(examples_prompt_list) + "\n\n"
 
 print(count_cloze_prompt_tokens(df, prompt=examples_prompt)/100, "tokens each")

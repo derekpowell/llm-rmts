@@ -423,3 +423,5 @@ df.groupby(["type"]).agg({"gpt_correct_zeroshot": np.mean, "gpt_correct_exp": np
 
 Accuracy for 200 is 56%, not really better than chance. So it seems that the few-shot prompting is not really helping. 
 
+Maybe I should try multiple choice
+
